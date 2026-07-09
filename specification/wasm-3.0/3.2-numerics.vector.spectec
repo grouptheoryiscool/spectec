@@ -8,12 +8,15 @@
 ;; Lanes
 
 def $lanes_(shape, vec_(V128)) : lane_($lanetype(shape))* hint(inverse $inv_lanes_)
+def $lanes_two_(shape, vec_(V128)) : lane_($lanetype(shape))*
+
 
 def $inv_lanes_(shape, lane_($lanetype(shape))*) : vec_(V128)
     hint(show $lanes_(%)^(-1)#((%)))
 
 ;; TODO(3, rossberg): implement numerics internally
 def $lanes_ hint(builtin)
+def $lanes_two_ hint(builtin)
 def $inv_lanes_ hint(builtin)
 
 def $zeroop(shape_1, shape_2, vcvtop__(shape_1, shape_2)) : zero?

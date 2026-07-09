@@ -446,6 +446,61 @@ let lanes : numerics =
       );
   }
 
+let lanes_two : numerics =
+  {
+    name = "lanes_two";
+    f =
+      (function
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I8" ]], []); z ]); v ] when z = sixteen ->
+        Printf.printf "lanes_two: I8x16\n";
+        v |> vl_to_vec128 |> RI.V128.I8x16.to_lanes |>
+        List.map (fun i ->
+          let n = i |> vl_of_nat8 |> caseV1 in
+          CaseV ([["mk_lane__1"];[];[]],[nullary "I8"; n])
+        ) |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I16"]], []); z ]); v ] when z = eight   ->
+        Printf.printf "lanes_two: I16x8\n";
+        v |> vl_to_vec128 |> RI.V128.I16x8.to_lanes |>
+        List.map (fun i ->
+          let n = i |> vl_of_nat16 |> caseV1 in
+          CaseV ([["mk_lane__1"];[];[]],[nullary "I16"; n])
+        ) |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I32"]], []); z ]); v ] when z = four    ->
+        Printf.printf "lanes_two: I32x4\n";
+        v |> vl_to_vec128 |> RI.V128.I32x4.to_lanes |>
+        List.map (fun i ->
+          let n = i |> vl_of_nat32 |> caseV1 in
+          let num_v = CaseV ([["mk_num__0"];[];[]], [nullary "I32"; n]) in
+          CaseV ([["mk_lane__0"];[];[]],[nullary "I32"; num_v])
+        ) |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I64"]], []); z ]); v ] when z = two     ->
+        Printf.printf "lanes_two: I64x2\n";
+        v |> vl_to_vec128 |> RI.V128.I64x2.to_lanes |>
+        List.map (fun i ->
+          let n = i |> vl_of_nat64 |> caseV1 in
+          let num_v = CaseV ([["mk_num__0"];[];[]], [nullary "I64"; n]) in
+          CaseV ([["mk_lane__0"];[];[]],[nullary "I64"; num_v])
+        ) |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["F32"]], []); z ]); v ] when z = four    ->
+        Printf.printf "lanes_two: F32x4\n";
+        v |> vl_to_vec128 |> RI.V128.F32x4.to_lanes |>
+        List.map (fun i ->
+          let n = i |> vl_of_float32 in
+          let num_v = CaseV ([["mk_num__1"];[];[]], [nullary "F32"; n]) in
+          CaseV ([["mk_lane__0"];[];[]],[nullary "F32"; num_v])
+        ) |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["F64"]], []); z ]); v ] when z = two     ->
+        Printf.printf "lanes_two: F64x2\n";
+        v |> vl_to_vec128 |> RI.V128.F64x2.to_lanes |>
+        List.map (fun i ->
+          let n = i |> vl_of_float64 in
+          let num_v = CaseV ([["mk_num__1"];[];[]], [nullary "F64"; n]) in
+          CaseV ([["mk_lane__0"];[];[]],[nullary "F64"; num_v])
+        ) |> listV_of_list
+      | vs -> error_values "lanes_2" vs
+      );
+  }
+
 (* let inv_lanes : numerics =
   {
     name = "inv_lanes";
@@ -1424,6 +1479,7 @@ let numerics_list : numerics list = [
   wrap;
   narrow;
   lanes;
+  lanes_two;
   inv_lanes;
   truncz;
   sat_u;
