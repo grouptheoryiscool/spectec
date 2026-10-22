@@ -1077,7 +1077,8 @@ rule Step_pure/vsplat:
 
 rule Step_pure/vextract_lane-num:
   (VCONST V128 c_1) (VEXTRACT_LANE (nt X M) i)  ~>  (CONST nt c_2)
-  -- if c_2 = $lanes_(nt X M, c_1)[i]
+  ;; -- if c_2 = $lanes_(nt X M, c_1)[i]
+  -- if c_2 = $lunpacknum_(nt, $lanes_(nt X M, c_1)[i])
 
 rule Step_pure/vextract_lane-pack:
   (VCONST V128 c_1) (VEXTRACT_LANE (pt X M) sx i)  ~>  (CONST I32 c_2)
