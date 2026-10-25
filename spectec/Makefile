@@ -57,7 +57,7 @@ TEST_PATHS := test-interpreter/spec-test-3/bulk-memory \
               test-interpreter/spec-test-3/gc \
               test-interpreter/spec-test-3/memory64 \
               test-interpreter/spec-test-3/multi-memory
-else ifeq ($(TEST),OCAML_ALL)
+else ifeq ($(TEST),OCAML_OLD)
 TEST_PATHS := test-interpreter/spec-test-3/ \
               test-interpreter/spec-test-3/bulk-memory \
               test-interpreter/spec-test-3/exceptions \
@@ -78,7 +78,12 @@ TEST_PATHS := $(TEST)
 endif
 
 
-.PHONY = anim-test anim-test-all
+.PHONY = animate anim-test anim-test-all anim-test-bench
+
+animate: SPECTEC_EXTRA_FLAGS ?= -l
+animate: SPECTEC_FLAGS ?= --animate --inline
+animate: exe
+	./spectec $(SPECTEC_EXTRA_FLAGS) $(SPEC) $(SPECTEC_FLAGS)
 
 anim-test: SPECTEC_EXTRA_FLAGS ?= -l
 anim-test: SPECTEC_FLAGS ?= --animate --inline --new-interpreter-v
@@ -88,9 +93,12 @@ anim-test: exe
 anim-test-all: exe
 	$(MAKE) anim-test 'TEST=NON_SLOW'
 
+anim-test-bench: anim-test-all
+
+
 # Wasm interpreter in OCaml
 
-.PHONY = ocaml-build ocaml-clean ocaml-run ocaml-test ocaml-testall
+.PHONY = ocaml-build ocaml-clean ocaml-run ocaml-test ocaml-test-all ocaml-test-bench
 
 
 SPEC ?= ../specification/wasm-3.0/* src/backend-animation/meta.spectec
@@ -124,7 +132,7 @@ ocaml-build: exe
 ocaml-clean:
 	rm -rf src/backend-animation/interpreter-ocaml/build
 
-ocaml-run: 
+ocaml-run: ocaml-build
 	dune exec ./src/backend-animation/interpreter-ocaml/build/dl_runner.exe $(SPEC) $(TEST_PATHS)
 
 ocaml-test: ocaml-build
@@ -133,8 +141,9 @@ ocaml-test: ocaml-build
 
 ocaml-test-all: ocaml-build
 	@echo "#### Running OCaml interpreter test."
-	$(MAKE) ocaml-run 'TEST=OCAML_ALL'
+	$(MAKE) ocaml-run 'TEST=NON_SLOW'
 
+ocaml-test-bench: ocaml-test-all
 
 # Latex
 

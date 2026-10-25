@@ -9,9 +9,9 @@ open Lib.Fun
 open Error
 open Il.Ast
 open Il.Print
+open Il.Free
 open Source
 open Printf
-open Il2al.Free
 open Lazy
 (* open Lru *)
 module HS = State_v.HostState
@@ -233,12 +233,11 @@ let rec assign ctx (lhs: exp) (rhs: value) : VContext.t OptMonad.m =
     let tcs = as_variant_typ !il_env t1 in
     (match List.find_map (fun (mixop', tcase, _) ->
       if vl_of_mixop mixop' = mixop then Some (mixop', tcase) else None) tcs
-     with
-     | Some (_, tcase) ->
-       let (_quants, typ, prems) = tcase in
-       let* ctx' = return ctx in  (* eval_prems ctx prems in *)
-       assign ctx' p rhs
-     | None -> fail ()
+    with
+    | Some (_, tcase) ->
+      let (_quants, typ, prems) = tcase in
+      assign ctx p rhs
+    | None -> fail ()
     )
   | _, _ -> fail ()
 
@@ -391,7 +390,7 @@ and eval_exp ctx exp : value OptMonad.m =
     let x_star = List.find (fun (x, _) -> Il.Eq.eq_id x v) xes |> snd in
     eval_exp ctx x_star
   (* Optimisation: const^N *)
-  | IterE (e1, (ListN(n, None), xes)) when Set.subset (Il2al.Free.free_exp false e1).varid (VContext.dom_varid ctx) ->
+  | IterE (e1, (ListN(n, None), xes)) when Set.subset (free_exp e1).varid (VContext.dom_varid ctx) ->
     (* If [e1] is a constant, i.e. it doesn't need the bindings from [xes]. *)
     let* v1 = eval_exp ctx e1 in
     let* vn = eval_exp ctx n <&> vl_to_int in
@@ -415,14 +414,18 @@ and eval_exp ctx exp : value OptMonad.m =
           let* v1 = eval_exp ctx' e1 in
           OptV (Some v1) |> return
         else
-          error_eval "Iterated epxression" exp (Some "?-iterator inflow expressions don't match.")
+          fail_eval "Iterated epxression" exp (Some "?-iterator inflow expressions don't match.")
       | List | List1 ->
         let n = Array.length (!(as_list_value (List.hd vs))) in
-        if iter' = List || n >= 1 then
-          let en = NumE (`Nat (Z.of_int n)) $$ exp.at % (NumT `NatT $ exp.at) in
-          eval_exp ctx (IterE (e1, (ListN (en, None), xes)) $> exp)
+        let ns = List.map (fun v -> Array.length (!(as_list_value v))) vs in
+        if List.for_all ((=) n) ns then
+          if iter' = List || n >= 1 then
+            let en = NumE (`Nat (Z.of_int n)) $$ exp.at % (NumT `NatT $ exp.at) in
+            eval_exp ctx (IterE (e1, (ListN (en, None), xes)) $> exp)
+          else
+            error_eval "Iterated expression" exp (Some "Using +-iterator but sequence length is 0")
         else
-          error_eval "Iterated expression" exp (Some "Using +-iterator but sequence length is 0")
+          fail_eval "Iterated expression" exp (Some ("*/+-iterator sequences don't agree on length"))
       | ListN (NumV (`Nat n'), oi) ->
         let vss = List.map as_list_value vs in
         let ns = List.map (fun vs -> Array.length !vs) vss in
@@ -441,7 +444,7 @@ and eval_exp ctx exp : value OptMonad.m =
           in
           listV_of_list vs1 |> return
         else
-          error_eval "Iterated expression" exp (Some "Inflow sequences don't agree on the length")
+          fail_eval "Iterated expression" exp (Some "(_<n)-iterator sequences don't agree on length")
       | ListN _ -> error_eval "Iterated expression" exp None
       )
   | ProjE (e1, i) ->
@@ -467,7 +470,7 @@ and eval_exp ctx exp : value OptMonad.m =
     let* v1 = eval_exp ctx e1 in
     (match v1 with
     | OptV (Some v11) -> return v11
-    | _ -> fail_eval "THE expression" exp None
+    | _ -> fail_eval "Projection out of none" exp None
     )
   | ListE es -> let* vs = mapM (eval_exp ctx) es in listV (Array.of_list vs) |> return
   | LiftE e1 ->
@@ -554,9 +557,10 @@ and eval_path at ctx v p (f: value -> path -> value OptMonad.m) : value OptMonad
       | ListV vs, NumV (`Nat i) when i < Z.of_int (Array.length !vs) ->
         let* vs' = mapiM (fun j vJ -> if Z.of_int j = i then f vJ p1' else return vJ) (Array.to_list !vs) in
         listV_of_list vs' |> return
-      | _ -> error at ("Index path failed to evaluate:\n" ^
-                       "  ▹ v: " ^ string_of_value v ^ "\n" ^
-                       "  ▹ p: " ^ string_of_path p)
+      | _ -> fail_info "eval_fail" at
+               (lazy ("Index path failed to evaluate:\n" ^
+                      "  ▹ v: " ^ string_of_value v ^ "\n" ^
+                      "  ▹ p: " ^ string_of_path p))
     in
     eval_path at ctx v p1 f'
   | SliceP (p1, e1, e2) ->
@@ -575,10 +579,11 @@ and eval_path at ctx v p (f: value -> path -> value OptMonad.m) : value OptMonad
           | _ -> assert false
           )
         else
-          error at ("Slicing range out of bounds:\n" ^
-                    "  ▹ |vs|: " ^ string_of_int (Array.length !vs) ^ "\n" ^
-                    "  ▹ i: " ^ string_of_value vi ^ "\n" ^
-                    "  ▹ n: " ^ string_of_value vn)
+          fail_info "eval_fail" at
+            (lazy ("Slicing range out of bounds:\n" ^
+                   "  ▹ |vs|: " ^ string_of_int (Array.length !vs) ^ "\n" ^
+                   "  ▹ i: " ^ string_of_value vi ^ "\n" ^
+                   "  ▹ n: " ^ string_of_value vn))
       | _ -> error at ("Slice path failed to evaluate:\n" ^
                        "  ▹ v: " ^ (string_of_value v |> Lib.String.shorten) ^ "\n" ^
                        "  ▹ i: " ^ string_of_value vi ^ "\n" ^
@@ -624,7 +629,7 @@ and eval_prem ctx prem : VContext.t OptMonad.m =
   | IterPr (prem1, (iter, xes)) ->
     (* Work out which variables are inflow and which are outflow. *)
     let in_binds, out_binds = List.fold_right (fun (x, e) (ins, ous) ->
-      let fv_e = (free_exp false e).varid in
+      let fv_e = (free_exp e).varid in
       if Set.subset fv_e (VContext.dom_varid ctx) then
         (x, e)::ins, ous
       else
@@ -640,6 +645,13 @@ and eval_prem ctx prem : VContext.t OptMonad.m =
         let t = Il_util.as_list_typ !il_env t_star in
         il_env := Il.Env.(bind_var !il_env x t);
       ) (in_binds @ out_binds);
+      (* Check all inflow sequences agree with length n *)
+      let* in_exps = mapM (fun (_, e) -> eval_exp ctx e) in_binds in
+      let* _ = if List.for_all (fun v -> (as_list_value' v |> List.length) = Z.to_int n') in_exps then
+                 return ()
+               else
+                 fail_info "fail_eval" prem.at (lazy ("(_<n)-iterated premises: sequences don't agree on length"))
+      in
       let* ctx' = if Z.to_int n' = 0 then (
         (* When n' = 0 the outflowing variables are assigned to `eps`. *)
         foldlM (fun ctx (x, e) ->
@@ -651,11 +663,11 @@ and eval_prem ctx prem : VContext.t OptMonad.m =
         let* ctx_out = foldlM (fun ctx_out idx ->
           let ctx = VContext.add_varid ctx i (vl_of_nat idx) in
           (* In-flow *)
-          let* ctx = foldlM (fun ctx (x, e) ->
+          let* ctx = foldlM (fun ctx ((x, _), v) ->
             let t = Il.Env.find_var !il_env x in
-            let* e' = eval_exp ctx (IdxE (e, mk_nat idx) $$ e.at % t) in
+            let e' = Array.get !(as_list_value v) idx in
             VContext.add_varid ctx x e' |> return
-          ) ctx in_binds
+          ) ctx (List.combine in_binds in_exps)
           in
           let* ctx = eval_prem ctx prem1 in
           (* Out-flow: Only collect them in [ctx_out], but don't add them to the local
@@ -692,18 +704,16 @@ and eval_prem ctx prem : VContext.t OptMonad.m =
       (* Need to figure out whether it runs or not. *)
       let* in_vals = mapM (fun (x, e) -> let* v = eval_exp ctx e in return (x, v)) in_binds in
       assert (List.length in_vals > 0);
-      let run_opt = match List.hd in_vals |> snd with
-      | OptV None     -> false
-      | OptV (Some _) -> true
-      | _ -> assert false
+      (* Also checks that all inputs agree. *)
+      let* run_opt = (
+        if List.for_all (fun (_, v) -> is_none_value v) in_vals then
+          return false
+        else if List.for_all (fun (_, v) -> is_some_value v) in_vals then
+          return true
+        else
+          fail_info "eval_fail" prem.at (lazy ("?-iterated premise: sequences don't agree on length"))
+      )
       in
-      (* Check that all inputs agree. *)
-      List.iter (fun (_, opt_val) ->
-        match opt_val, run_opt with
-        | OptV None, false -> ()
-        | OptV (Some _), true -> ()
-        | _ -> assert false
-      ) in_vals;
       let* ctx' = begin if not run_opt then
       (* When the optional is None, all outflow variables should be None. *)
         foldlM (fun ctx (x, e) -> assign ctx e none) ctx out_binds
@@ -732,7 +742,7 @@ and eval_prems ctx prems : VContext.t OptMonad.m =
   | prem :: prems ->
     (match eval_prem  ctx  prem |> run_opt with
     | Some ctx' -> eval_prems ctx' prems
-    | None      -> (* fail_info "log" prem.at (lazy ("Premise failed: " ^ string_of_prem prem))*) fail ()
+    | None      -> fail_info "log" prem.at (lazy ("Premise failed: " ^ string_of_prem prem))
     )
 
 and match_typ ctx at (pat: typ) (arg: typ) : VContext.t OptMonad.m =
@@ -758,9 +768,8 @@ and match_args ctx at pargs args : VContext.t OptMonad.m =
     return ctx''
 
 and match_clause ctx at (fname: string) (nth: int) (clauses: clause list) (args: Value.arg list) : value OptMonad.m =
-  if String.starts_with fname ~prefix:"vshiftop" then info "log" at (lazy ("Function " ^ fname ^ " is called with " ^ (Value.string_of_args args) ^ " arguments"));
   match clauses with
-  | [] -> if String.starts_with fname ~prefix:"step" || String.starts_with fname ~prefix:"reduce" || String.starts_with fname ~prefix:"dispatch" || String.starts_with fname ~prefix:"lanes" || String.starts_with fname ~prefix:"inv_lanes" then info "log" at (lazy ("Function " ^ fname ^ " has exhausted all " ^ string_of_int (nth-1) ^ " clauses")); fail ()
+  | [] -> info "log" at (lazy ("Function " ^ fname ^ " has exhausted all " ^ string_of_int (nth-1) ^ " clauses")); fail ()
   | cl :: cls ->
     let DefD (quants, pargs, exp, prems) = cl.it in
     let old_env = !il_env in
@@ -775,15 +784,15 @@ and match_clause ctx at (fname: string) (nth: int) (clauses: clause list) (args:
         | Some ctx'' ->
           (* If [exp] is partial, it means this clause is refuted. *)
           (match eval_exp ctx'' exp |> run_opt with
-          | Some v -> if String.starts_with fname ~prefix:"step" || String.starts_with fname ~prefix:"reduce" || String.starts_with fname ~prefix:"dispatch" || String.starts_with fname ~prefix:"lanes" || String.starts_with fname ~prefix:"inv_lanes" || String.starts_with fname ~prefix:"vcvtop__" then info "log" at (lazy ("Function `" ^ fname ^ "` accepted at clause " ^ string_of_int nth));
+          | Some v -> info "log" at (lazy ("Function `" ^ fname ^ "` accepted at clause " ^ string_of_int nth));
                       return v
-          | None   -> if String.starts_with fname ~prefix:"step" || String.starts_with fname ~prefix:"reduce" || String.starts_with fname ~prefix:"dispatch" || String.starts_with fname ~prefix:"lanes" || String.starts_with fname ~prefix:"inv_lanes" then info "log" at (lazy ("Function `" ^ fname ^ "` refuted: partial function on RHS at clause " ^ string_of_int nth));
+          | None   -> info "log" at (lazy ("Function `" ^ fname ^ "` refuted: partial function on RHS at clause " ^ string_of_int nth));
                       match_clause ctx at fname (nth+1) cls args
           )
-        | None -> if String.starts_with fname ~prefix:"step" || String.starts_with fname ~prefix:"reduce" || String.starts_with fname ~prefix:"dispatch" || String.starts_with fname ~prefix:"lanes" || String.starts_with fname ~prefix:"inv_lanes" then info "log" at (lazy ("Function `" ^ fname ^ "` refuted: false premise at clause " ^ string_of_int nth));
+        | None -> info "log" at (lazy ("Function `" ^ fname ^ "` refuted: false premise at clause " ^ string_of_int nth));
                   match_clause ctx at fname (nth+1) cls args
         )
-      | None -> if String.starts_with fname ~prefix:"step" || String.starts_with fname ~prefix:"reduce" || String.starts_with fname ~prefix:"dispatch" || String.starts_with fname ~prefix:"lanes" || String.starts_with fname ~prefix:"inv_lanes" then info "log" at (lazy ("Function `" ^ fname ^ "` refuted: unmatched argument at clause " ^ string_of_int nth));
+      | None -> info "log" at (lazy ("Function `" ^ fname ^ "` refuted: unmatched argument at clause " ^ string_of_int nth));
                 match_clause ctx at fname (nth+1) cls args
       )
     in
@@ -860,8 +869,6 @@ and call_func name args : value OptMonad.m =
       error no (sprintf "Builtin function `%s` is not defined in the interpreter." name)
   | _ when is_builtin ->
     error no (sprintf "Function `%s` is marked as builtin but there is either no declaration or is defined in SpecTec." name)
-  (* bad temp fix for hostcalls in the ocaml interpreter *)
-  | None when name = "hostcall_ocaml" -> hostcall_ocaml args
   | None -> error no (sprintf "There is no function named `%s`." name)
   )
 
@@ -967,6 +974,7 @@ and hostcall : Value.arg list -> value OptMonad.m = function
     | Later -> error no ("Host function `" ^ name' ^ "` is calling into the future.")
     )
   | _ -> error no ("Invalid arguments to $hostcall")
+
 
 (* horrible, temporary fix *)
 and call_hostfunc_ocaml name s vs =
@@ -1074,7 +1082,6 @@ and hostcall_ocaml : Value.arg list -> value OptMonad.m = function
   | _ -> error no ("Invalid arguments to $hostcall")
 
 
-
 (* Built-in functions (meta.spectec) *)
 
 and use_step : builtin = {
@@ -1122,7 +1129,6 @@ and use_step_ctxt = {
       List.mem (List.hd (List.hd mixop)) ["LABEL_"; "FRAME_"; "HANDLER_"] |> boolV |> return
     | vs -> error_values ("Args to $use_step_ctxt") vs
 }
-
 
 and dispatch_step = {
   name = "dispatch_step";
@@ -1179,6 +1185,7 @@ and call_builtins fname args : value OptMonad.m =
 
 and builtins_mem fname =
   List.exists (fun builtin -> builtin.name = fname) builtin_list
+
 
 
 (* Wasm interpreter entry *)
