@@ -392,50 +392,36 @@ let narrow : numerics =
   } *)
 
 let lanes : numerics =
+  let mk_ilane t n = CaseV ([["mk_lane__0"];[];[]], [nullary t; n]) in
+  let mk_flane t n = CaseV ([["mk_lane__1"];[];[]], [nullary t; n]) in
   {
     name = "lanes";
     f =
       (function
       | [ CaseV ([[];["X"];[]], [ CaseV ([["I8" ]], []); z ]); v ] when z = sixteen ->
-        v |> vl_to_vec128 |> RI.V128.I8x16.to_lanes |>
-        List.map (fun i ->
-          let n = i |> vl_of_nat8 |> caseV1 in
-          CaseV ([["mk_lane__2"];[];[]],[nullary "I8"; n])
-        ) |> listV_of_list
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I16"]], []); z ]); v ] when z = eight   ->
-        v |> vl_to_vec128 |> RI.V128.I16x8.to_lanes |>
-        List.map (fun i ->
-          let n = i |> vl_of_nat16 |> caseV1 in
-          CaseV ([["mk_lane__2"];[];[]],[nullary "I16"; n])
-        ) |> listV_of_list
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I32"]], []); z ]); v ] when z = four    ->
-        v |> vl_to_vec128 |> RI.V128.I32x4.to_lanes |>
-        List.map (fun i ->
-          let n = i |> vl_of_nat32 |> caseV1 in
-          let num_v = CaseV ([["mk_num__0"];[];[]], [nullary "I32"; n]) in
-          CaseV ([["mk_lane__2"];[];[]],[nullary "I32"; n])
-        ) |> listV_of_list
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I64"]], []); z ]); v ] when z = two     ->
-        v |> vl_to_vec128 |> RI.V128.I64x2.to_lanes |>
-        List.map (fun i ->
-          let n = i |> vl_of_nat64 |> caseV1 in
-          let num_v = CaseV ([["mk_num__0"];[];[]], [nullary "I64"; n]) in
-          CaseV ([["mk_lane__2"];[];[]],[nullary "I64"; n])
-        ) |> listV_of_list
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["F32"]], []); z ]); v ] when z = four    ->
-        v |> vl_to_vec128 |> RI.V128.F32x4.to_lanes |>
-        List.map (fun i ->
-          let n = i |> vl_of_float32 in
-          let num_v = CaseV ([["mk_num__1"];[];[]], [nullary "F32"; n]) in
-          CaseV ([["mk_lane__0"];[];[]],[nullary "F32"; num_v])
-        ) |> listV_of_list
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["F64"]], []); z ]); v ] when z = two     ->
-        v |> vl_to_vec128 |> RI.V128.F64x2.to_lanes |>
-        List.map (fun i ->
-          let n = i |> vl_of_float64 in
-          let num_v = CaseV ([["mk_num__1"];[];[]], [nullary "F64"; n]) in
-          CaseV ([["mk_lane__0"];[];[]],[nullary "F64"; num_v])
-        ) |> listV_of_list
+        v |> vl_to_vec128 |> RI.V128.I8x16.to_lanes
+        |> List.map (fun i -> mk_ilane "I8" (i |> vl_of_nat8 |> caseV1))
+        |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I16"]], []); z ]); v ] when z = eight ->
+        v |> vl_to_vec128 |> RI.V128.I16x8.to_lanes
+        |> List.map (fun i -> mk_ilane "I16" (i |> vl_of_nat16 |> caseV1))
+        |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I32"]], []); z ]); v ] when z = four ->
+        v |> vl_to_vec128 |> RI.V128.I32x4.to_lanes
+        |> List.map (fun i -> mk_ilane "I32" (i |> vl_of_nat32 |> caseV1))
+        |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I64"]], []); z ]); v ] when z = two ->
+        v |> vl_to_vec128 |> RI.V128.I64x2.to_lanes
+        |> List.map (fun i -> mk_ilane "I64" (i |> vl_of_nat64 |> caseV1))
+        |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["F32"]], []); z ]); v ] when z = four ->
+        v |> vl_to_vec128 |> RI.V128.F32x4.to_lanes
+        |> List.map (fun i -> mk_flane "F32" (vl_of_float32 i))
+        |> listV_of_list
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["F64"]], []); z ]); v ] when z = two ->
+        v |> vl_to_vec128 |> RI.V128.F64x2.to_lanes
+        |> List.map (fun i -> mk_flane "F64" (vl_of_float64 i))
+        |> listV_of_list
       | vs -> error_values "lanes" vs
       );
   }
@@ -462,46 +448,28 @@ let lanes : numerics =
   } *)
 
 let inv_lanes : numerics =
+  let un_ilane = function
+    | CaseV ([["mk_lane__0"];[];[]], [_; n]) -> n
+    | v -> error_values "inv_lanes (int lane)" [v] in
+  let un_flane = function
+    | CaseV ([["mk_lane__1"];[];[]], [_; f]) -> f
+    | v -> error_values "inv_lanes (float lane)" [v] in
   {
     name = "inv_lanes";
     f =
       (function
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I8" ]], []); z ]); ListV lanes; ] when z = sixteen && Array.length !lanes = 16 ->
-        List.map (fun l -> match l with
-          | CaseV ([["mk_lane__2"];[];[]], [_; n]) -> n |> as_singleton_case |> vl_to_int8
-          | CaseV ([["mk_lane__1"];[];[]], [_; n]) -> n |> as_singleton_case |> vl_to_int8
-          | _ -> error_value "inv_lanes I8" l
-        ) (!lanes |> Array.to_list) |> RI.V128.I8x16.of_lanes |> vl_of_vec128
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I16"]], []); z ]); ListV lanes; ] when z = eight   && Array.length !lanes = 8 ->
-        List.map (fun l -> match l with
-          | CaseV ([["mk_lane__2"];[];[]], [_; n]) -> n |> as_singleton_case |> vl_to_int16
-          | CaseV ([["mk_lane__1"];[];[]], [_; n]) -> n |> as_singleton_case |> vl_to_int16
-          | _ -> error_value "inv_lanes I16" l
-        ) (!lanes |> Array.to_list) |> RI.V128.I16x8.of_lanes |> vl_of_vec128
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I32"]], []); z ]); ListV lanes; ] when z = four    && Array.length !lanes = 4 ->
-        List.map (fun l -> match l with
-          | CaseV ([["mk_lane__2"];[];[]], [_; n]) -> n |> as_singleton_case |> vl_to_nat32
-            | CaseV ([["mk_lane__0"];[];[]], [_; CaseV ([["mk_num__0"];[];[]], [_; n])]) -> n |> as_singleton_case |> vl_to_nat32
-          | _ -> error_value "inv_lanes I32" l
-        ) (!lanes |> Array.to_list) |> RI.V128.I32x4.of_lanes |> vl_of_vec128
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["I64"]], []); z ]); ListV lanes; ] when z = two     && Array.length !lanes = 2 ->
-        List.map (fun l -> match l with
-          | CaseV ([["mk_lane__2"];[];[]], [_; n]) -> n |> as_singleton_case |> vl_to_nat64
-          | CaseV ([["mk_lane__0"];[];[]], [_; CaseV ([["mk_num__0"];[];[]], [_; n])]) -> n |> as_singleton_case |> vl_to_nat64
-          | _ -> error_value "inv_lanes I64" l
-        ) (!lanes |> Array.to_list) |> RI.V128.I64x2.of_lanes |> vl_of_vec128
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["F32"]], []); z ]); ListV lanes; ] when z = four    && Array.length !lanes = 4 ->
-        List.map (fun l -> match l with
-          | CaseV ([["mk_lane__2"];[];[]], [_; n]) -> n |> vl_to_float32
-          | CaseV ([["mk_lane__0"];[];[]], [_; CaseV ([["mk_num__1"];[];[]], [_; n])]) -> n |> vl_to_float32
-          | _ -> error_value "inv_lanes F32" l
-        ) (!lanes |> Array.to_list) |> RI.V128.F32x4.of_lanes |> vl_of_vec128
-      | [ CaseV ([[];["X"];[]], [ CaseV ([["F64"]], []); z ]); ListV lanes; ] when z = two     && Array.length !lanes = 2 ->
-        List.map (fun l -> match l with
-          | CaseV ([["mk_lane__2"];[];[]], [_; n]) -> n |> vl_to_float64
-          | CaseV ([["mk_lane__0"];[];[]], [_; CaseV ([["mk_num__1"];[];[]], [_; n])]) -> n |> vl_to_float64
-          | _ -> error_value "inv_lanes F64" l
-        ) (!lanes |> Array.to_list) |> RI.V128.F64x2.of_lanes |> vl_of_vec128
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I8" ]], []); z ]); ListV lanes ] when z = sixteen && Array.length !lanes = 16 ->
+        List.map Lib.Fun.(un_ilane >.> as_singleton_case >.> vl_to_int8)  (Array.to_list !lanes) |> RI.V128.I8x16.of_lanes |> vl_of_vec128
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I16"]], []); z ]); ListV lanes ] when z = eight   && Array.length !lanes = 8 ->
+        List.map Lib.Fun.(un_ilane >.> as_singleton_case >.> vl_to_int16) (Array.to_list !lanes) |> RI.V128.I16x8.of_lanes |> vl_of_vec128
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I32"]], []); z ]); ListV lanes ] when z = four    && Array.length !lanes = 4 ->
+        List.map Lib.Fun.(un_ilane >.> as_singleton_case >.> vl_to_nat32) (Array.to_list !lanes) |> RI.V128.I32x4.of_lanes |> vl_of_vec128
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["I64"]], []); z ]); ListV lanes ] when z = two     && Array.length !lanes = 2 ->
+        List.map Lib.Fun.(un_ilane >.> as_singleton_case >.> vl_to_nat64) (Array.to_list !lanes) |> RI.V128.I64x2.of_lanes |> vl_of_vec128
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["F32"]], []); z ]); ListV lanes ] when z = four    && Array.length !lanes = 4 ->
+        List.map Lib.Fun.(un_flane >.> vl_to_float32) (Array.to_list !lanes) |> RI.V128.F32x4.of_lanes |> vl_of_vec128
+      | [ CaseV ([[];["X"];[]], [ CaseV ([["F64"]], []); z ]); ListV lanes ] when z = two     && Array.length !lanes = 2 ->
+        List.map Lib.Fun.(un_flane >.> vl_to_float64) (Array.to_list !lanes) |> RI.V128.F64x2.of_lanes |> vl_of_vec128
       | vs -> error_values "inv_lanes" vs
       );
   }

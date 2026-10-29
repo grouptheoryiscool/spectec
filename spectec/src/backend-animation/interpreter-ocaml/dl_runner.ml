@@ -390,10 +390,11 @@ let () =
 
   let csv = open_out "results.csv" in
   Printf.fprintf csv "testname,passed,total,time\n";
+  
+  let oc = open_out "exception.log" in
 
   let results = List.map (fun testfile ->
     let cmds = A.Runner.run testfile in (* parsing *)
-    let oc = open_out "exception.log" in
     let result = run_wast oc cmds
       |> A.Main_interpret_v.sum_results_with_time in
     print_runner_result testfile result;

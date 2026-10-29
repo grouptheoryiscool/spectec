@@ -55,6 +55,8 @@ let vl_to_name exp =
   | ([[];[]], [chars]) -> vl_to_list vl_to_char chars
   | _ -> error_value "name" exp
 
+not changing this in construct_v_ocaml.ml because the built-in functions use them, and they would have to be rewritten too
+
 *)
 let gen_ocaml_of_name () = Printf.sprintf "ocaml_of_name (e : value) : DL.name =\n\
 \  match e with\n\

@@ -12,6 +12,7 @@ open Util_ocaml.TypeM
 exception CannotAnimate
 exception CannotSplit of string
 
+(* i dont think these are used anymore !!!! *)
 let gen_ref_ok () =
   "uc_ref_ok_fn (s : store) (r : ref) (rt2 : reftype) : bool =\n\
   \  let rt1 = ref_infer_fn s r in\n\
